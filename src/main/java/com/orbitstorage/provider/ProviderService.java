@@ -48,7 +48,7 @@ public class ProviderService {
             var row = rows.getFirst();
             try {
                 if (row.get("kind").equals("LOCAL")) return new LocalStorageProvider(config.localRoot.resolve(providerId.toString()));
-                return new S3StorageProvider(json.readValue(crypto.decrypt((String)row.get("encrypted_config")), S3Config.class), providerId.toString());
+                return new S3StorageProvider(json.readValue(crypto.decrypt((String)row.get("encrypted_config")), S3Config.class));
             } catch (Exception ex) { throw new ApiException(503, "Provider initialization failed"); }
         });
     }
@@ -56,4 +56,17 @@ public class ProviderService {
         return db.queryForList("SELECT id,name,kind,minimum_billable_bytes,available,last_reconciled FROM providers ORDER BY name");
     }
     @PreDestroy public void close() { adapters.values().forEach(StorageProvider::close); }
+    public java.util.List<Map<String,Object>> storageTargets() {
+        var rows = db.queryForList("SELECT id,name,kind,minimum_billable_bytes,available,last_reconciled,encrypted_config FROM providers ORDER BY name,id");
+        for(var row:rows) {
+            String encrypted=(String)row.remove("encrypted_config");
+            if(row.get("kind").equals("S3")) {
+                try {
+                    var s3=json.readValue(crypto.decrypt(encrypted), S3Config.class);
+                    row.put("bucket",s3.bucket()); row.put("region",s3.region()); row.put("endpoint",s3.endpoint());
+                } catch(Exception ex) { throw new ApiException(503,"Storage configuration could not be read"); }
+            }
+        }
+        return rows;
+    }
 }

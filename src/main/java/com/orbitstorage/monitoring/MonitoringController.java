@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.*;
 public class MonitoringController {
     private final UsageService usage;
     public MonitoringController(UsageService usage) { this.usage=usage; }
-    @GetMapping("/projects/{projectId}/usage") public Map<String,Object> usage(@PathVariable UUID projectId) { Access.project(projectId,"usage:read"); return usage.project(projectId); }
+    @GetMapping("/usage") public Map<String,Object> usage() { return usage.project(Access.project("usage:read")); }
     @GetMapping("/admin/storage/overview") public Map<String,Object> overview() { return usage.overview(); }
     @GetMapping("/admin/storage/providers") public List<Map<String,Object>> providers() { return usage.providers(); }
     @GetMapping("/admin/storage/projects") public List<Map<String,Object>> projects() { return usage.projects(); }

@@ -68,25 +68,27 @@ class OrbitIntegrationTest {
         return http.send(request.build(),HttpResponse.BodyHandlers.ofByteArray());
     }
     @SuppressWarnings("unchecked") Map<String,Object> body(HttpResponse<byte[]> response) { return json.readValue(response.body(),Map.class); }
-    String path(UUID project) { return "/api/v1/projects/"+project+"/files"; }
+    String path() { return "/api/v1/files"; }
     @Test void fileLifecycleHeadersUsageAndProjectIsolation() throws Exception {
         UUID a=project(1000,100,1000,20,2),b=project(1000,100,1000,20,2);
-        String aKey=key(a,"files:read","files:write","files:delete","usage:read"),bKey=key(b,"files:read");
+        String aKey=key(a,"files:read","files:write","files:delete","usage:read"),bKey=key(b,"files:read","files:delete","usage:read");
         byte[] content="hello".getBytes();
-        var uploaded=request("POST",path(a),aKey,content,"text/plain","hello.txt"); assertEquals(201,uploaded.statusCode());
+        var uploaded=request("POST",path(),aKey,content,"text/plain","hello.txt"); assertEquals(201,uploaded.statusCode());
         String id=(String)body(uploaded).get("id");
-        var download=request("GET",path(a)+"/"+id,aKey,null,null,null); assertEquals(200,download.statusCode()); assertArrayEquals(content,download.body());
+        var download=request("GET",path()+"/"+id,aKey,null,null,null); assertEquals(200,download.statusCode()); assertArrayEquals(content,download.body());
         assertTrue(download.headers().firstValue("content-disposition").orElseThrow().contains("attachment"));
         assertEquals("nosniff",download.headers().firstValue("x-content-type-options").orElseThrow());
-        assertEquals(403,request("GET",path(a)+"/"+id,bKey,null,null,null).statusCode());
-        assertEquals(404,request("GET",path(b)+"/"+id,bKey,null,null,null).statusCode());
-        assertEquals(200,request("GET",path(a)+"/"+id+"/metadata",aKey,null,null,null).statusCode());
-        var usage=body(request("GET","/api/v1/projects/"+a+"/usage",aKey,null,null,null));
+        assertEquals(404,request("GET",path()+"/"+id+"/metadata",bKey,null,null,null).statusCode());
+        assertEquals(404,request("GET",path()+"/"+id,bKey,null,null,null).statusCode());
+        assertEquals(404,request("DELETE",path()+"/"+id,bKey,null,null,null).statusCode());
+        assertEquals(0,((Number)body(request("GET","/api/v1/usage",bKey,null,null,null)).get("stored_bytes")).intValue());
+        assertEquals(200,request("GET",path()+"/"+id+"/metadata",aKey,null,null,null).statusCode());
+        var usage=body(request("GET","/api/v1/usage",aKey,null,null,null));
         assertEquals(5,((Number)usage.get("stored_bytes")).intValue()); assertEquals(5,((Number)usage.get("downloaded_bytes")).intValue());
-        assertEquals(204,request("DELETE",path(a)+"/"+id,aKey,null,null,null).statusCode());
-        usage=body(request("GET","/api/v1/projects/"+a+"/usage",aKey,null,null,null));
+        assertEquals(204,request("DELETE",path()+"/"+id,aKey,null,null,null).statusCode());
+        usage=body(request("GET","/api/v1/usage",aKey,null,null,null));
         assertEquals(0,((Number)usage.get("stored_bytes")).intValue()); assertEquals(5,((Number)usage.get("dailyAdmittedBytes")).intValue());
-        assertEquals(404,request("GET",path(a)+"/"+id,aKey,null,null,null).statusCode());
+        assertEquals(404,request("GET",path()+"/"+id,aKey,null,null,null).statusCode());
     }
     @Test void authenticationPermissionsRevocationAndMonitoringAreSeparate() throws Exception {
         UUID project=project(1000,100,1000,20,2);
@@ -94,30 +96,34 @@ class OrbitIntegrationTest {
         assertEquals(401,request("GET","/api/v1/admin/projects",null,null,null,null).statusCode());
         assertEquals(401,request("GET","/api/v1/admin/projects","invalid",null,null,null).statusCode());
         assertEquals(403,request("GET","/api/v1/admin/projects",read,null,null,null).statusCode());
-        assertEquals(403,request("POST",path(project),read,new byte[1],"text/plain","a.txt").statusCode());
-        assertEquals(403,request("POST",path(project),ADMIN,new byte[1],"text/plain","a.txt").statusCode());
+        assertEquals(403,request("POST",path(),read,new byte[1],"text/plain","a.txt").statusCode());
+        assertEquals(403,request("POST",path(),ADMIN,new byte[1],"text/plain","a.txt").statusCode());
+        assertEquals(401,request("GET","/api/v1/usage",null,null,null,null).statusCode());
+        assertEquals(403,request("GET","/api/v1/usage",read,null,null,null).statusCode());
+        assertEquals(403,request("GET","/api/v1/usage",ADMIN,null,null,null).statusCode());
+        assertEquals(403,request("GET",path()+"/"+UUID.randomUUID(),MONITOR,null,null,null).statusCode());
         assertEquals(200,request("GET","/api/v1/admin/storage/overview",MONITOR,null,null,null).statusCode());
         assertEquals(403,request("GET","/api/v1/admin/projects",MONITOR,null,null,null).statusCode());
         var rotated=projects.createKey(project,new ProjectService.CreateKey(Set.of("files:read"),null));
         assertNotEquals(read,rotated.get("key"));
         var old=db.queryForObject("SELECT id FROM api_keys WHERE key_hash=?",UUID.class,Crypto.hash(read)); projects.revoke(project,old);
-        assertEquals(401,request("GET",path(project)+"/"+UUID.randomUUID(),read,null,null,null).statusCode());
-        assertEquals(404,request("GET",path(project)+"/"+UUID.randomUUID(),(String)rotated.get("key"),null,null,null).statusCode());
+        assertEquals(401,request("GET",path()+"/"+UUID.randomUUID(),read,null,null,null).statusCode());
+        assertEquals(404,request("GET",path()+"/"+UUID.randomUUID(),(String)rotated.get("key"),null,null,null).statusCode());
         assertEquals(200,request("GET","/actuator/health",null,null,null,null).statusCode());
         assertEquals(200,request("GET","/v3/api-docs",ADMIN,null,null,null).statusCode());
     }
     @Test void uploadLimitsRateAndDailyBudget() throws Exception {
         UUID project=project(1000,10,15,20,2); String write=key(project,"files:write","files:delete");
-        assertEquals(413,request("POST",path(project),write,new byte[11],"text/plain","a.txt").statusCode());
-        assertEquals(415,request("POST",path(project),write,new byte[1],"image/png","a.png").statusCode());
-        assertEquals(400,request("POST",path(project),write,new byte[1],"text/plain","../x").statusCode());
-        assertEquals(400,request("POST",path(project),write,new byte[1],"text/plain",null).statusCode());
-        var upload=request("POST",path(project),write,new byte[10],"text/plain","a.txt"); assertEquals(201,upload.statusCode());
-        assertEquals(204,request("DELETE",path(project)+"/"+body(upload).get("id"),write,null,null,null).statusCode());
-        var blocked=request("POST",path(project),write,new byte[6],"text/plain","a.txt"); assertEquals(429,blocked.statusCode()); assertTrue(blocked.headers().firstValue("retry-after").isPresent());
+        assertEquals(413,request("POST",path(),write,new byte[11],"text/plain","a.txt").statusCode());
+        assertEquals(415,request("POST",path(),write,new byte[1],"image/png","a.png").statusCode());
+        assertEquals(400,request("POST",path(),write,new byte[1],"text/plain","../x").statusCode());
+        assertEquals(400,request("POST",path(),write,new byte[1],"text/plain",null).statusCode());
+        var upload=request("POST",path(),write,new byte[10],"text/plain","a.txt"); assertEquals(201,upload.statusCode());
+        assertEquals(204,request("DELETE",path()+"/"+body(upload).get("id"),write,null,null,null).statusCode());
+        var blocked=request("POST",path(),write,new byte[6],"text/plain","a.txt"); assertEquals(429,blocked.statusCode()); assertTrue(blocked.headers().firstValue("retry-after").isPresent());
         UUID limited=project(1000,10,1000,1,2); String limitedKey=key(limited,"files:write");
-        assertEquals(201,request("POST",path(limited),limitedKey,new byte[1],"text/plain","a.txt").statusCode());
-        assertEquals(429,request("POST",path(limited),limitedKey,new byte[1],"text/plain","b.txt").statusCode());
+        assertEquals(201,request("POST",path(),limitedKey,new byte[1],"text/plain","a.txt").statusCode());
+        assertEquals(429,request("POST",path(),limitedKey,new byte[1],"text/plain","b.txt").statusCode());
     }
     @Test void concurrentReservationsCannotBypassQuota() throws Exception {
         UUID project=project(1000,600,10000,20,10); var start=new CountDownLatch(1);
@@ -160,6 +166,54 @@ class OrbitIntegrationTest {
         assertEquals(5,((Number)projects.get(project).get("stored_bytes")).intValue());
         files.delete(project,ready.id()); assertEquals(0,((Number)projects.get(project).get("stored_bytes")).intValue());
     }
+    @Test void reconciliationContinuesAfterIndividualFailuresAndRetriesWithoutPublishingPartialTotals() throws Exception {
+        UUID project=project(1000,100,1000,20,10);
+        UUID providerId=(UUID)projects.get(project).get("provider_id");
+        Map<UUID,QuotaService.Reservation> reservations=new HashMap<>();
+        for(int i=0;i<4;i++) {
+            var reservation=quotas.reserve(project,10,"file.txt","text/plain");
+            reservations.put(reservation.id(),reservation);
+        }
+        var ordered=db.queryForList("SELECT id FROM files ORDER BY id",UUID.class);
+        var failedCleanup=reservations.get(ordered.get(0));
+        var successfulCleanup=reservations.get(ordered.get(1));
+        var failedMetadata=reservations.get(ordered.get(2));
+        var missingFile=reservations.get(ordered.get(3));
+        quotas.cleanupPending(failedCleanup.id()); quotas.cleanupPending(successfulCleanup.id());
+        quotas.finish(failedMetadata); quotas.finish(missingFile);
+        db.update("UPDATE providers SET available=true,last_reconciled=now()-interval '1 day',observed_bytes=20,missing_objects=0,mismatched_objects=0 WHERE id=?",providerId);
+        var previous=db.queryForMap("SELECT * FROM providers WHERE id=?",providerId);
+        var mockProviders=mock(ProviderService.class); var adapter=mock(StorageProvider.class);
+        when(mockProviders.get(providerId)).thenReturn(adapter);
+        doThrow(new IOException("delete failed")).when(adapter).delete(failedCleanup.objectKey());
+        when(adapter.getMetadata(failedMetadata.objectKey())).thenThrow(new IOException("metadata failed"));
+        when(adapter.getMetadata(missingFile.objectKey())).thenReturn(Optional.empty());
+        var service=new ReconciliationService(db,mockProviders,quotas);
+
+        service.reconcile();
+
+        assertEquals("CLEANUP",files.get(project,failedCleanup.id()).status);
+        assertEquals(0,db.queryForObject("SELECT count(*) FROM files WHERE id=?",Integer.class,successfulCleanup.id()));
+        assertEquals("READY",files.get(project,failedMetadata.id()).status);
+        assertEquals("MISSING",files.get(project,missingFile.id()).status);
+        assertEquals(10,((Number)projects.get(project).get("reserved_bytes")).intValue());
+        var partial=db.queryForMap("SELECT * FROM providers WHERE id=?",providerId);
+        assertEquals(false,partial.get("available"));
+        for(String column:List.of("last_reconciled","observed_bytes","missing_objects","mismatched_objects")) {
+            assertEquals(previous.get(column),partial.get(column));
+        }
+
+        doNothing().when(adapter).delete(failedCleanup.objectKey());
+        doReturn(Optional.of(new StorageProvider.ObjectMetadata(10))).when(adapter).getMetadata(failedMetadata.objectKey());
+        service.reconcile();
+
+        assertEquals(0,((Number)projects.get(project).get("reserved_bytes")).intValue());
+        var recovered=db.queryForMap("SELECT * FROM providers WHERE id=?",providerId);
+        assertEquals(true,recovered.get("available"));
+        assertEquals(10,((Number)recovered.get("observed_bytes")).intValue());
+        assertEquals(1,((Number)recovered.get("missing_objects")).intValue());
+        assertNotEquals(previous.get("last_reconciled"),recovered.get("last_reconciled"));
+    }
     @Test void providerSecretsAreEncryptedAndNeverReturned() throws Exception {
         var provider=providers.create(new ProviderService.CreateProvider("s3","S3",128,new ProviderService.S3Config("https://example.com","us-east-1","bucket","access-secret","secret-secret",true)));
         String encrypted=db.queryForObject("SELECT encrypted_config FROM providers WHERE id=?",String.class,provider.get("id"));
@@ -177,22 +231,59 @@ class OrbitIntegrationTest {
         assertEquals(201,created.statusCode()); UUID project=UUID.fromString((String)body(created).get("id"));
         var issued=request("POST","/api/v1/admin/projects/"+project+"/keys",ADMIN,json.writeValueAsBytes(Map.of("permissions",Set.of("files:write","usage:read"))),"application/json",null);
         assertEquals(201,issued.statusCode()); String key=(String)body(issued).get("key");
-        var upload=request("POST",path(project),key,new byte[10],"text/plain","floor.txt"); assertEquals(201,upload.statusCode());
+        var upload=request("POST",path(),key,new byte[10],"text/plain","floor.txt"); assertEquals(201,upload.statusCode());
         assertEquals(128,((Number)body(upload).get("estimatedBillableSize")).intValue());
         assertNotEquals(provider,body(upload).get("storageAssignmentId"));
         assertEquals(128,((Number)projects.get(project).get("billable_bytes")).intValue());
         var updated=request("PATCH","/api/v1/admin/projects/"+project,ADMIN,json.writeValueAsBytes(Map.of("maxFileBytes",5)),"application/json",null);
         assertEquals(200,updated.statusCode());
-        assertEquals(413,request("POST",path(project),key,new byte[6],"text/plain","blocked.txt").statusCode());
+        assertEquals(413,request("POST",path(),key,new byte[6],"text/plain","blocked.txt").statusCode());
     }
     @Test void rejectsUnknownLengthAndExpiredKeys() throws Exception {
         UUID project=project(1000,100,1000,20,2); String key=key(project,"files:write");
-        var chunked=HttpRequest.newBuilder(URI.create("http://localhost:"+port+path(project)))
+        var chunked=HttpRequest.newBuilder(URI.create("http://localhost:"+port+path()))
             .header("Authorization","Bearer "+key).header("Content-Type","text/plain").header("X-Filename","chunked.txt")
             .POST(HttpRequest.BodyPublishers.ofInputStream(() -> new ByteArrayInputStream(new byte[10]))).build();
         assertEquals(411,http.send(chunked,HttpResponse.BodyHandlers.ofByteArray()).statusCode());
         assertEquals(0,((Number)projects.get(project).get("reserved_bytes")).intValue());
         db.update("UPDATE api_keys SET expires_at=now()-interval '1 minute' WHERE key_hash=?",Crypto.hash(key));
-        assertEquals(401,request("POST",path(project),key,new byte[1],"text/plain","a.txt").statusCode());
+        assertEquals(401,request("POST",path(),key,new byte[1],"text/plain","a.txt").statusCode());
+    }
+    @Test void setupKeyRequestCanBeIdentifiedAndRecoveredWithoutReplacingExistingKeys() throws Exception {
+        UUID project=project(1000,100,1000,20,2), requestId=UUID.randomUUID();
+        String endpoint="/api/v1/admin/projects/"+project+"/keys";
+        byte[] payload=json.writeValueAsBytes(Map.of("permissions",Set.of("usage:read"),"requestId",requestId));
+        var first=request("POST",endpoint,ADMIN,payload,"application/json",null);
+        assertEquals(201,first.statusCode());
+        assertEquals(requestId.toString(),body(first).get("id"));
+        String firstKey=(String)body(first).get("key");
+        assertEquals(409,request("POST",endpoint,ADMIN,payload,"application/json",null).statusCode());
+        assertEquals(1,projects.keys(project).size());
+        assertEquals(200,request("GET","/api/v1/usage",firstKey,null,null,null).statusCode());
+        assertEquals(204,request("DELETE",endpoint+"/"+requestId,ADMIN,null,null,null).statusCode());
+        assertEquals(401,request("GET","/api/v1/usage",firstKey,null,null,null).statusCode());
+        var replacement=projects.createKey(project,new ProjectService.CreateKey(Set.of("usage:read"),null,UUID.randomUUID()));
+        assertEquals(200,request("GET","/api/v1/usage",(String)replacement.get("key"),null,null,null).statusCode());
+    }
+    @Test void storageDiscoveryAndMissingStorageErrorsAreExplicitAndProtected() throws Exception {
+        var empty=request("GET","/api/v1/admin/providers",ADMIN,null,null,null);
+        assertEquals(200,empty.statusCode());
+        assertEquals("[]",new String(empty.body(),java.nio.charset.StandardCharsets.UTF_8));
+        byte[] projectBody=json.writeValueAsBytes(Map.of("name","app","providerId",UUID.randomUUID(),"quotaBytes",1000,"maxFileBytes",100,"allowedTypes",Set.of("text/plain")));
+        var missing=request("POST","/api/v1/admin/projects",ADMIN,projectBody,"application/json",null);
+        assertEquals(409,missing.statusCode());
+        assertEquals("No storage found. Add a storage target before creating a project.",body(missing).get("detail"));
+        assertTrue(missing.headers().firstValue("content-type").orElseThrow().contains("application/problem+json"));
+        providers.create(new ProviderService.CreateProvider("s3","S3",0,new ProviderService.S3Config("https://example.com","region","test-bucket","private-access","private-secret",true)));
+        var listed=request("GET","/api/v1/admin/providers",ADMIN,null,null,null);
+        String payload=new String(listed.body(),java.nio.charset.StandardCharsets.UTF_8);
+        assertEquals(200,listed.statusCode());
+        assertTrue(payload.contains("test-bucket")); assertTrue(payload.contains("region"));
+        assertFalse(payload.contains("private-access")); assertFalse(payload.contains("private-secret")); assertFalse(payload.contains("encrypted_config"));
+        assertEquals(404,request("POST","/api/v1/admin/projects",ADMIN,projectBody,"application/json",null).statusCode());
+        assertEquals(401,request("GET","/api/v1/admin/providers",null,null,null,null).statusCode());
+        assertEquals(403,request("GET","/api/v1/admin/providers",MONITOR,null,null,null).statusCode());
+        UUID project=project(1000,100,1000,20,2);
+        assertEquals(403,request("GET","/api/v1/admin/providers",key(project,"files:read"),null,null,null).statusCode());
     }
 }

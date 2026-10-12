@@ -16,9 +16,8 @@ import com.orbitstorage.provider.ProviderService.S3Config;
 public class S3StorageProvider implements StorageProvider {
     private final S3Client client;
     private final String bucket;
-    private final String prefix;
-    public S3StorageProvider(S3Config config, String prefix) {
-        this.bucket = config.bucket(); this.prefix = prefix + "/";
+    public S3StorageProvider(S3Config config) {
+        this.bucket = config.bucket();
         var builder = S3Client.builder().region(Region.of(config.region()))
             .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(config.accessKey(), config.secretKey())))
             .forcePathStyle(config.pathStyle())
@@ -29,7 +28,7 @@ public class S3StorageProvider implements StorageProvider {
     }
     private String objectKey(String key) {
         if (!key.matches("[0-9a-f-]{36}/[0-9a-f-]{36}")) throw new IllegalArgumentException("Invalid object key");
-        return prefix + key;
+        return key;
     }
     @Override public void upload(String key, InputStream source, long size, String type) {
         client.putObject(r -> r.bucket(bucket).key(objectKey(key)).contentLength(size).contentType(type), RequestBody.fromInputStream(source, size));

@@ -47,7 +47,19 @@ class StorageProviderTest {
         try(var client=S3Client.builder().region(Region.US_EAST_1).endpointOverride(java.net.URI.create(endpoint)).forcePathStyle(true)
             .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create("orbit-test","orbit-test-password"))).build()) {
             client.createBucket(b -> b.bucket("orbit-contract"));
+            try(var provider=new S3StorageProvider(new S3Config(endpoint,"us-east-1","orbit-contract","orbit-test","orbit-test-password",true))) {
+                contract(provider);
+                String key=UUID.randomUUID()+"/"+UUID.randomUUID();
+                byte[] bytes="project-root object".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                provider.upload(key,new ByteArrayInputStream(bytes),bytes.length,"text/plain");
+                var objects=client.listObjectsV2(b -> b.bucket("orbit-contract")).contents();
+                assertEquals(java.util.List.of(key),objects.stream().map(o -> o.key()).toList());
+                try(var source=client.getObject(b -> b.bucket("orbit-contract").key(key))) {
+                    assertArrayEquals(bytes,source.readAllBytes());
+                }
+                provider.delete(key);
+                assertTrue(client.listObjectsV2(b -> b.bucket("orbit-contract")).contents().isEmpty());
+            }
         }
-        try(var provider=new S3StorageProvider(new S3Config(endpoint,"us-east-1","orbit-contract","orbit-test","orbit-test-password",true),UUID.randomUUID().toString())) { contract(provider); }
     }
 }

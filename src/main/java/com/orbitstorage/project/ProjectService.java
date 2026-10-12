@@ -20,7 +20,9 @@ public class ProjectService {
         @Positive Long maxFileBytes, @Positive Long dailyUploadBytes,
         @Min(1) @Max(10000) Integer uploadsPerMinute, @Min(1) @Max(50) Integer concurrentUploads,
         @Size(min=1,max=100) Set<@NotBlank @Size(max=200) String> allowedTypes) {}
-    public record CreateKey(@NotEmpty Set<String> permissions, Instant expiresAt) {}
+    public record CreateKey(@NotEmpty Set<String> permissions, Instant expiresAt, UUID requestId) {
+        public CreateKey(Set<String> permissions, Instant expiresAt) { this(permissions,expiresAt,null); }
+    }
     private static final Set<String> PERMISSIONS = Set.of("files:read","files:write","files:delete","usage:read");
     private final JdbcTemplate db;
     private final OrbitConfig config;
@@ -31,7 +33,10 @@ public class ProjectService {
     }
     public List<Map<String,Object>> list() { return db.queryForList("SELECT * FROM projects ORDER BY name"); }
     public Map<String,Object> create(CreateProject req) {
-        if (db.queryForObject("SELECT count(*) FROM providers WHERE id=?",Long.class,req.providerId()) == 0) throw new ApiException(404,"Provider not found");
+        if (db.queryForObject("SELECT count(*) FROM providers",Long.class) == 0)
+            throw new ApiException(409,"No storage found. Add a storage target before creating a project.");
+        if (db.queryForObject("SELECT count(*) FROM providers WHERE id=?",Long.class,req.providerId()) == 0)
+            throw new ApiException(404,"Storage target not found for the selected providerId");
         long max = req.maxFileBytes()==null ? 10485760 : req.maxFileBytes();
         if (max > config.maxRequestBytes) throw new ApiException(400,"Project file limit exceeds global request limit");
         validateTypes(req.allowedTypes());
@@ -54,8 +59,9 @@ public class ProjectService {
         get(id);
         if (!PERMISSIONS.containsAll(req.permissions())) throw new ApiException(400,"Unsupported project permission");
         if (req.expiresAt()!=null && !req.expiresAt().isAfter(Instant.now())) throw new ApiException(400,"Key expiration must be in the future");
-        String key=Crypto.randomKey(); UUID keyId=UUID.randomUUID();
-        db.update("INSERT INTO api_keys(id,project_id,key_hash,permissions,expires_at) VALUES (?,?,?,?,?)",keyId,id,Crypto.hash(key),String.join(",",req.permissions()),req.expiresAt()==null?null:java.sql.Timestamp.from(req.expiresAt()));
+        String key=Crypto.randomKey(); UUID keyId=req.requestId()==null?UUID.randomUUID():req.requestId();
+        int inserted=db.update("INSERT INTO api_keys(id,project_id,key_hash,permissions,expires_at) VALUES (?,?,?,?,?) ON CONFLICT (id) DO NOTHING",keyId,id,Crypto.hash(key),String.join(",",req.permissions()),req.expiresAt()==null?null:java.sql.Timestamp.from(req.expiresAt()));
+        if(inserted!=1) throw new ApiException(409,"Key request already processed; use a new requestId");
         return Map.of("id",keyId,"key",key,"permissions",req.permissions());
     }
     public List<Map<String,Object>> keys(UUID id) { get(id); return db.queryForList("SELECT id,permissions,created_at,expires_at,revoked FROM api_keys WHERE project_id=? ORDER BY created_at DESC",id); }

@@ -35,6 +35,7 @@ public class ReconciliationService {
     }
     private void reconcileProvider(UUID providerId) {
         long observed=0,missing=0,mismatch=0;
+        boolean complete=true;
         try {
             var adapter=providers.get(providerId);
             adapter.checkHealth();
@@ -44,25 +45,36 @@ public class ReconciliationService {
                 if(rows.isEmpty()) break;
                 for(var file:rows) {
                     UUID id=(UUID)file.get("id"); cursor=id; String key=(String)file.get("object_key"); String status=(String)file.get("status");
-                    boolean stale=((java.sql.Timestamp)file.get("uploaded_at")).toInstant().isBefore(java.time.Instant.now().minusSeconds(3600));
-                    if(status.equals("CLEANUP") || status.equals("UPLOADING") && stale) {
-                        adapter.delete(key); quotas.cancel(id); continue;
-                    }
-                    if(status.equals("DELETING")) { adapter.delete(key); quotas.finishDelete(id); continue; }
-                    if(status.equals("UPLOADING")) continue;
-                    var metadata=adapter.getMetadata(key);
-                    if(metadata.isEmpty()) {
-                        missing++; db.update("UPDATE files SET status='MISSING' WHERE id=? AND status='READY'",id);
-                    } else {
-                        observed=Math.addExact(observed,metadata.get().size());
-                        if(metadata.get().size()!=((Number)file.get("actual_size")).longValue()) {
-                            mismatch++; db.update("UPDATE files SET status='MISSING' WHERE id=? AND status='READY'",id);
-                        } else db.update("UPDATE files SET status='READY' WHERE id=? AND status='MISSING'",id);
+                    try {
+                        boolean stale=((java.sql.Timestamp)file.get("uploaded_at")).toInstant().isBefore(java.time.Instant.now().minusSeconds(3600));
+                        if(status.equals("CLEANUP") || status.equals("UPLOADING") && stale) {
+                            adapter.delete(key); quotas.cancel(id); continue;
+                        }
+                        if(status.equals("DELETING")) { adapter.delete(key); quotas.finishDelete(id); continue; }
+                        if(status.equals("UPLOADING")) continue;
+                        var metadata=adapter.getMetadata(key);
+                        if(metadata.isEmpty()) {
+                            missing++; db.update("UPDATE files SET status='MISSING' WHERE id=? AND status='READY'",id);
+                        } else {
+                            observed=Math.addExact(observed,metadata.get().size());
+                            if(metadata.get().size()!=((Number)file.get("actual_size")).longValue()) {
+                                mismatch++; db.update("UPDATE files SET status='MISSING' WHERE id=? AND status='READY'",id);
+                            } else db.update("UPDATE files SET status='READY' WHERE id=? AND status='MISSING'",id);
+                        }
+                    } catch(Exception ex) {
+                        complete=false;
+                        // Keep failed operations pending, and never log provider exception messages or secrets.
+                        LOG.warn("Reconciliation failed for file {} in provider {} ({})",id,providerId,ex.getClass().getSimpleName());
                     }
                 }
             }
             if(adapter instanceof LocalStorageProvider local) local.cleanStaging();
-            db.update("UPDATE providers SET available=true,last_reconciled=now(),observed_bytes=?,missing_objects=?,mismatched_objects=? WHERE id=?",observed,missing,mismatch,providerId);
+            if(complete) {
+                db.update("UPDATE providers SET available=true,last_reconciled=now(),observed_bytes=?,missing_objects=?,mismatched_objects=? WHERE id=?",observed,missing,mismatch,providerId);
+            } else {
+                // Preserve the last complete snapshot rather than publish partial counts as a successful scan.
+                db.update("UPDATE providers SET available=false WHERE id=?",providerId);
+            }
         } catch(Exception ex) {
             db.update("UPDATE providers SET available=false WHERE id=?",providerId);
             LOG.warn("Reconciliation failed for provider {} ({})",providerId,ex.getClass().getSimpleName());

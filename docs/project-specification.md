@@ -374,14 +374,14 @@ Suggested endpoints:
 
 ### Files
 
-- POST /api/v1/projects/{projectId}/files
-- GET /api/v1/projects/{projectId}/files/{fileId}
-- GET /api/v1/projects/{projectId}/files/{fileId}/metadata
-- DELETE /api/v1/projects/{projectId}/files/{fileId}
+- POST /api/v1/files
+- GET /api/v1/files/{fileId}
+- GET /api/v1/files/{fileId}/metadata
+- DELETE /api/v1/files/{fileId}
 
 ### Usage
 
-- GET /api/v1/projects/{projectId}/usage
+- GET /api/v1/usage
 - GET /api/v1/admin/storage/overview
 - GET /api/v1/admin/storage/providers
 - GET /api/v1/admin/storage/projects

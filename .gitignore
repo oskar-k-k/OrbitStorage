@@ -6,3 +6,7 @@ build/
 *.iml
 data/
 *.log
+.orbit-setup/
+__pycache__/
+.env.*.local
+*.dump

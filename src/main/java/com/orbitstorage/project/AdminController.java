@@ -21,6 +21,7 @@ public class AdminController {
     @GetMapping("/projects/{id}/keys") public List<Map<String,Object>> keys(@PathVariable UUID id) { return projects.keys(id); }
     @DeleteMapping("/projects/{id}/keys/{keyId}") @ResponseStatus(HttpStatus.NO_CONTENT)
     public void revoke(@PathVariable UUID id, @PathVariable UUID keyId) { projects.revoke(id,keyId); }
+    @GetMapping("/providers") public List<Map<String,Object>> storageTargets() { return providers.storageTargets(); }
     @PostMapping("/providers") @ResponseStatus(HttpStatus.CREATED)
     public Map<String,Object> provider(@Valid @RequestBody ProviderService.CreateProvider req) { return providers.create(req); }
 }

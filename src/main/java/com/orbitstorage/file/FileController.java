@@ -15,24 +15,24 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 @RestController
-@RequestMapping("/api/v1/projects/{projectId}/files")
+@RequestMapping("/api/v1/files")
 public class FileController {
     private final FileService files;
     public FileController(FileService files) { this.files=files; }
     @PostMapping @ResponseStatus(HttpStatus.CREATED)
     @Operation(summary="Upload raw file bytes",description="Requires a positive Content-Length, X-Filename and an allowed Content-Type. Multipart and chunked uploads are not supported.",
         requestBody=@io.swagger.v3.oas.annotations.parameters.RequestBody(content=@Content(mediaType="application/octet-stream",schema=@Schema(type="string",format="binary"))))
-    public FileRecord.Metadata upload(@PathVariable UUID projectId,
+    public FileRecord.Metadata upload(
         @RequestHeader("X-Filename") String filename, @RequestHeader(value="Content-Type",required=false) String type,
         @Parameter(hidden=true) HttpServletRequest request) throws IOException {
-        Access.project(projectId,"files:write");
+        UUID projectId=Access.project("files:write");
         return files.upload(projectId,filename,type,request.getContentLengthLong(),request.getInputStream());
     }
-    @GetMapping("/{fileId}/metadata") public FileRecord.Metadata metadata(@PathVariable UUID projectId,@PathVariable UUID fileId) {
-        Access.project(projectId,"files:read"); return files.get(projectId,fileId).metadata();
+    @GetMapping("/{fileId}/metadata") public FileRecord.Metadata metadata(@PathVariable UUID fileId) {
+        UUID projectId=Access.project("files:read"); return files.get(projectId,fileId).metadata();
     }
-    @GetMapping("/{fileId}") public void download(@PathVariable UUID projectId,@PathVariable UUID fileId,HttpServletResponse response) throws IOException {
-        Access.project(projectId,"files:read"); var file=files.get(projectId,fileId);
+    @GetMapping("/{fileId}") public void download(@PathVariable UUID fileId,HttpServletResponse response) throws IOException {
+        UUID projectId=Access.project("files:read"); var file=files.get(projectId,fileId);
         long observed=0;
         try(var source=files.download(file)) {
             response.setContentType(file.contentType); response.setContentLengthLong(file.actualSize);
@@ -46,5 +46,5 @@ public class FileController {
         } finally { if(observed>0) files.downloaded(projectId,observed); }
     }
     @DeleteMapping("/{fileId}") @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable UUID projectId,@PathVariable UUID fileId) { Access.project(projectId,"files:delete"); files.delete(projectId,fileId); }
+    public void delete(@PathVariable UUID fileId) { UUID projectId=Access.project("files:delete"); files.delete(projectId,fileId); }
 }

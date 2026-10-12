@@ -5,3 +5,7 @@ build
 .env
 data
 *.log
+.orbit-setup
+**/__pycache__
+*.dump
+.env.*.local

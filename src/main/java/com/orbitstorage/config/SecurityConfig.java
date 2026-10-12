@@ -21,7 +21,7 @@ public class SecurityConfig {
                 .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/admin/storage/**", "/actuator/metrics/**", "/actuator/info").hasAnyRole("ADMIN", "MONITOR")
                 .requestMatchers("/api/v1/admin/**", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").hasRole("ADMIN")
-                .requestMatchers("/api/v1/projects/**").hasRole("PROJECT")
+                .requestMatchers("/api/v1/files", "/api/v1/files/**", "/api/v1/usage").hasRole("PROJECT")
                 .anyRequest().denyAll())
             .exceptionHandling(e -> e.authenticationEntryPoint((req,res,ex) -> {
                 res.setStatus(401); res.setContentType("application/problem+json");

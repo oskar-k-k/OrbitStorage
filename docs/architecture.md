@@ -1,10 +1,16 @@
 # Architecture decisions
 
+* Default installation pulls a versioned GHCR image. The optional Compose build overlay is for development only. CI validates Java, CLI and isolated installation tests before publishing branch/commit images and version tags; application images are not stored in Git.
+
+* File and project-usage endpoints derive the project exclusively from the authenticated project API key. Clients cannot select a project through the path or request parameters. File lookups remain scoped to that project; administrative routes retain explicit project IDs.
+* The CLI separates service initialization (`init`) from storage management (`storage add` and `storage list`). Initialization never registers storage, projects or project keys; storage commands do not start or restart the service. Private local checkpoints allow recovery without storing S3 secrets. Applications are provisioned later through the admin API. Key creation accepts an optional UUID `requestId` used as the key ID; duplicate requests return 409 without replacing the key. Plaintext project keys are returned once and cannot be recovered through the server API.
+
 * Feature-oriented modular monolith: `auth`, `project`, `file`, `provider`, `quota`, `ratelimit`, `usage`, `monitoring`, `config`, `common`.
 * PostgreSQL is authoritative for metadata/counters. Flyway owns the schema; Hibernate validates it. JPA retrieves file metadata, JDBC performs explicit atomic accounting transactions. File contents are never stored in the database.
 * All capacity mutations acquire the singleton `capacity_lock` row first. Reservations include the provider's minimum billable object size. Rate admission uses its own short project-row transaction before capacity admission. No storage I/O happens while holding a capacity lock.
 * File state machine: `UPLOADING -> READY -> DELETING -> removed`. A failed upload moves to `CLEANUP -> removed`; missing or corrupt ready objects become `MISSING`, retaining their charged capacity. Recovery retries provider deletion before releasing counters.
 * Each project has a unique immutable storage assignment ID alongside its provider ID. Every file persists both IDs. Assignment migration is deliberately unavailable.
+* S3 stores objects as `project-id/file-id` directly in the configured bucket. Multiple projects can share one bucket; provider IDs identify connection configurations, not S3 path segments. Local providers retain isolated roots at `ORBIT_LOCAL_ROOT/provider-id`. Projects are flat; nested folders are not supported.
 * Provider adapters implement a streaming contract. LOCAL uses an atomic staging rename; S3 uses a single known-length PUT. S3 retries cannot rewind an arbitrary servlet stream; failures are reported and cleaned up rather than re-buffered in memory.
 * Reconciliation uses a PostgreSQL advisory lock and bounded keyset batches. It compares tracked objects, detects size discrepancies and recovers abandoned operations. It does not claim to measure entire bucket usage or costs.
 * API-key entropy is 256 bits. Unsalted SHA-256 is appropriate for these random high-entropy tokens; this is not a password scheme. Provider configuration uses authenticated AES-GCM encryption with a unique random nonce. Admin/monitoring bootstrap keys reside only in deployment configuration.

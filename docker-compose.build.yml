@@ -1,0 +1,5 @@
+services:
+  orbit-storage:
+    image: orbitstorage-local:dev
+    build: .
+    pull_policy: build
