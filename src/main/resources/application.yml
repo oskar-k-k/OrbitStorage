@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: orbit-storage
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/orbitstorage}
+    username: ${DATABASE_USER:orbitstorage}
+    password: ${DATABASE_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  servlet:
+    multipart:
+      enabled: false
+server:
+  port: 8080
+  shutdown: graceful
+  tomcat:
+    max-http-form-post-size: 1MB
+    max-swallow-size: 1MB
+    connection-timeout: 20s
+    threads:
+      max: 50
+    max-connections: 200
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+logging:
+  structured:
+    format:
+      console: logstash
+orbit:
+  admin-key: ${ORBIT_ADMIN_KEY}
+  monitoring-key: ${ORBIT_MONITORING_KEY:}
+  encryption-key: ${ORBIT_ENCRYPTION_KEY}
+  local-root: ${ORBIT_LOCAL_ROOT:./data/objects}
+  global-budget: ${ORBIT_GLOBAL_BUDGET:107374182400}
+  warning-percent: ${ORBIT_WARNING_PERCENT:80}
+  blocking-percent: ${ORBIT_BLOCKING_PERCENT:95}
+  max-request-bytes: ${ORBIT_MAX_REQUEST_BYTES:104857600}
+  reconciliation-delay-ms: ${ORBIT_RECONCILIATION_DELAY_MS:300000}
+springdoc:
+  swagger-ui:
+    enabled: ${ORBIT_DOCS_ENABLED:false}

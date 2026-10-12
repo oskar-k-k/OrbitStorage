@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: orbitstorage
+      POSTGRES_USER: orbitstorage
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?Set DATABASE_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orbitstorage -d orbitstorage"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+  orbit-storage:
+    build: .
+    ports:
+      - "127.0.0.1:${ORBIT_PORT:-18080}:8080"
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/orbitstorage
+      DATABASE_USER: orbitstorage
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?Set DATABASE_PASSWORD}
+      ORBIT_ADMIN_KEY: ${ORBIT_ADMIN_KEY:?Set ORBIT_ADMIN_KEY}
+      ORBIT_MONITORING_KEY: ${ORBIT_MONITORING_KEY:-}
+      ORBIT_ENCRYPTION_KEY: ${ORBIT_ENCRYPTION_KEY:?Set ORBIT_ENCRYPTION_KEY}
+      ORBIT_LOCAL_ROOT: /data/objects
+      ORBIT_GLOBAL_BUDGET: ${ORBIT_GLOBAL_BUDGET:-107374182400}
+      ORBIT_WARNING_PERCENT: ${ORBIT_WARNING_PERCENT:-80}
+      ORBIT_BLOCKING_PERCENT: ${ORBIT_BLOCKING_PERCENT:-95}
+      ORBIT_MAX_REQUEST_BYTES: ${ORBIT_MAX_REQUEST_BYTES:-104857600}
+      ORBIT_RECONCILIATION_DELAY_MS: ${ORBIT_RECONCILIATION_DELAY_MS:-300000}
+      ORBIT_DOCS_ENABLED: ${ORBIT_DOCS_ENABLED:-false}
+    volumes:
+      - objects:/data/objects
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 768m
+volumes:
+  postgres_data:
+  objects:
