@@ -163,6 +163,8 @@ Verwende in deiner Anwendung dann `https://storage.example.com` als Basis-URL. L
 
 ## 7. Backups und Updates
 
+Für eine eingerichtete automatische Produktionseinrichtung laufen Updates über GitHub Actions: Ein neuer Release-Tag (z. B. `v0.1.1`) startet Tests, Image-Veröffentlichung und anschließend das Server-Deployment. Ein normaler Push auf `main` aktualisiert den Server nicht. Dabei wird vor dem Neustart die Datenbank gesichert; die API ist kurz unterbrochen. Einrichtung, Release-Befehle und Fehlerbehandlung stehen in der [Deployment-Dokumentation](deployment.md). Die folgenden manuellen Schritte gelten für Installationen ohne automatisches Deployment.
+
 Sichere zusammen:
 
 - Die private `.env`, besonders `ORBIT_ENCRYPTION_KEY`, und `.orbit-setup/`.

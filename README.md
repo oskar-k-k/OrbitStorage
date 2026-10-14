@@ -15,7 +15,7 @@ git clone https://github.com/oskar-k-k/OrbitStorage.git
 cd OrbitStorage
 ```
 
-Normal installation pulls the versioned image `ghcr.io/oskar-k-k/orbitstorage:0.1.0` from GitHub Container Registry. Published images currently target Linux AMD64 (on Windows, use Docker Desktop with Linux containers). Source builds are optional.
+Normal installation pulls the versioned image `ghcr.io/oskar-k-k/orbitstorage:0.1.1` from GitHub Container Registry. Published images currently target Linux AMD64 (on Windows, use Docker Desktop with Linux containers). Source builds are optional.
 
 **1. Start OrbitStorage.** This creates only the service configuration and containers. No storage targets, projects or project keys are created, and no bucket details are requested.
 
@@ -222,6 +222,8 @@ Testcontainers starts disposable PostgreSQL and [Adobe S3Mock](https://github.co
 ## Operations
 
 ### Updates and image publication
+
+**Automatic production updates:** the opt-in GitHub Actions deployment runs only for stable release tags after tests and image publication succeed. It uses a restricted SSH key, deploys the exact image digest, backs up the database and checks health. Ordinary pushes to `main` do not deploy. See [release deployment](docs/deployment.md) for configuration, release commands and recovery behavior.
 
 Back up first, read migration notes, then run `git pull --ff-only` and `sh ./orbit init` (Windows: `.\orbit.ps1 init`). Releases pin the image version in `docker-compose.yml`; an optional `ORBIT_IMAGE` in `.env` overrides it and must be updated explicitly. For a deliberately mutable tag, run `docker compose pull orbit-storage` before `init`. Do not delete `.env` or volumes during updates. Database migrations run on startup; downgrades may require restoring the matching database backup.
 

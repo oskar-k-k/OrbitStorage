@@ -14,7 +14,7 @@ services:
       retries: 10
     restart: unless-stopped
   orbit-storage:
-    image: ${ORBIT_IMAGE:-ghcr.io/oskar-k-k/orbitstorage:0.1.0}
+    image: ${ORBIT_IMAGE:-ghcr.io/oskar-k-k/orbitstorage:0.1.1}
     ports:
       - "127.0.0.1:${ORBIT_PORT:-18080}:8080"
     environment:

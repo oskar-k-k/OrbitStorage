@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m unittest discover -s scripts -p test_setup.py
+      - run: python -m unittest discover -s scripts -p 'test_*.py'
       - run: chmod +x gradlew
       - run: ./gradlew check bootJar
       - run: python scripts/smoke_setup.py
@@ -27,6 +27,8 @@ jobs:
     needs: test
     if: github.event_name == 'push' && github.repository == 'oskar-k-k/OrbitStorage'
     runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.image.outputs.digest }}
     permissions:
       contents: read
       packages: write
@@ -48,6 +50,7 @@ jobs:
             type=sha
           flavor: latest=false
       - uses: docker/build-push-action@v6
+        id: image
         with:
           context: .
           push: true
@@ -56,3 +59,46 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+  deploy:
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v') && vars.ORBIT_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    concurrency:
+      group: orbitstorage-production
+      cancel-in-progress: false
+    steps:
+      - name: Deploy the tested image by digest
+        env:
+          DEPLOY_KEY: ${{ secrets.ORBIT_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.ORBIT_DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.ORBIT_DEPLOY_HOST }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          IMAGE_DIGEST: ${{ needs.publish.outputs.digest }}
+          REVISION: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+$ ]]
+          umask 077
+          key="$RUNNER_TEMP/orbit-deploy-key"
+          hosts="$RUNNER_TEMP/orbit-known-hosts"
+          trap 'rm -f "$key" "$hosts"' EXIT
+          printf '%s\n' "$DEPLOY_KEY" > "$key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$hosts"
+          ssh -i "$key" -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$hosts" \
+            -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            "orbit-deploy@$DEPLOY_HOST" "deploy $RELEASE_TAG $IMAGE_DIGEST $REVISION"
+      - name: Check public HTTPS endpoint
+        env:
+          HEALTH_URL: ${{ vars.ORBIT_HEALTH_URL }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 5 --retry-all-errors \
+            --connect-timeout 10 --max-time 30 "$HEALTH_URL" | \
+            python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "UP"'
